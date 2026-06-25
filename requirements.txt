@@ -7,6 +7,6 @@ openai
 firebase-admin
 reportlab
 python-dateutil
-gunicorn
+gunicorn==21.2.0
 python-dotenv
 google-generativeai
