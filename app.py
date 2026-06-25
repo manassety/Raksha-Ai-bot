@@ -197,25 +197,34 @@ def cloud_sms():
     return jsonify({"success": True, "status": "Queued via Render Backend"})
 
 @app.route("/api/ai/test", methods=["GET"])
-def test_ai():
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return jsonify({"success": False, "error": "OPENAI_API_KEY missing in environment"}), 500
-    
+def ai_test():
     try:
+        from openai import OpenAI
+        import os
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "OPENAI_API_KEY missing"
+            }), 500
+
         client = OpenAI(api_key=api_key)
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "user", "content": "Hello"}
-            ],
-            timeout=10
+            ]
         )
+
         reply = response.choices[0].message.content
+
         return jsonify({
             "success": True,
             "reply": reply
         })
+
     except Exception as e:
         return jsonify({
             "success": False,
