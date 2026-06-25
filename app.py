@@ -11,7 +11,7 @@ from datetime import datetime
 import sys
 print("Python Version:", sys.version)
 
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3.1:free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter")
 print(f"Provider: {AI_PROVIDER}")
 print(f"Model: {OPENROUTER_MODEL}")
@@ -141,66 +141,38 @@ def ai_chat():
         # Attempt OpenRouter response via Engine if loaded, otherwise fallback to direct OpenRouter
         reply = "I'm having trouble thinking right now. Please check my OpenRouter engine."
         model_used = "none"
+        attempted_models = []
         
         if bot_engine:
-            try:
-                res = bot_engine.get_chat_response(user_message, section)
-                reply = res.get("reply", reply)
-                model_used = res.get("model_used", "engine")
-            except Exception as e:
-                print(f"Bot Engine OpenRouter Error: {e}")
-                # Fallback to direct OpenRouter if engine fails
-                from openai import OpenAI
-                client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ.get("OPENROUTER_API_KEY"))
-                try:
-                    response = client.chat.completions.create(
-                        model=OPENROUTER_MODEL,
-                        messages=[
-                            {"role": "system", "content": f"You are Raksha AI. Help the user in the {section} category."},
-                            {"role": "user", "content": user_message}
-                        ],
-                        temperature=0.7,
-                        max_tokens=1200
-                    )
-                    reply = response.choices[0].message.content
-                    model_used = OPENROUTER_MODEL
-                except Exception as ex:
-                    print(f"Direct OpenRouter Fallback Error: {ex}")
-                    reply = "I'm having trouble connecting to my AI brain via OpenRouter fallback."
+            res = bot_engine.get_chat_response(user_message, section)
+            if res.get("success"):
+                reply = res.get("reply")
+                model_used = res.get("model_used")
+                
+                # Save to Firebase if successful
+                if bot_fb and user_id != "guest":
+                    try:
+                        bot_fb.save_chat_message(user_id, {"sender": "bot", "message": reply, "section": section})
+                    except: pass
+
+                return jsonify({
+                    "success": True,
+                    "reply": reply,
+                    "provider": "openrouter",
+                    "model_used": model_used
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "provider": "openrouter",
+                    "error": res.get("error", "AI Engine Failure"),
+                    "attempted_models": res.get("attempted_models", [])
+                }), 503
         else:
-            # Direct OpenRouter Fallback
-            from openai import OpenAI
-            client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ.get("OPENROUTER_API_KEY"))
-            try:
-                response = client.chat.completions.create(
-                    model=OPENROUTER_MODEL,
-                    messages=[
-                        {"role": "system", "content": "You are Raksha AI Safety Bot. Answer practical safety tips."},
-                        {"role": "user", "content": user_message}
-                    ],
-                    temperature=0.7,
-                    max_tokens=1200
-                )
-                reply = response.choices[0].message.content
-                model_used = OPENROUTER_MODEL
-            except Exception as ex:
-                print(f"Direct OpenRouter Fallback Error: {ex}")
-                reply = "I'm having trouble connecting to my AI brain via direct fallback."
-
-        # Save to Firebase if possible
-        if bot_fb and user_id != "guest":
-            try:
-                # Handle dictionary if reply is from direct engine
-                actual_reply_text = reply if isinstance(reply, str) else str(reply)
-                bot_fb.save_chat_message(user_id, {"sender": "bot", "message": actual_reply_text, "section": section})
-            except: pass
-
-        return jsonify({
-            "success": True,
-            "reply": reply,
-            "provider": "openrouter",
-            "model_used": model_used
-        })
+            return jsonify({
+                "success": False,
+                "error": "AI Engine not initialized"
+            }), 500
 
     except Exception as e:
         app.logger.exception("AI Chat Logic Failure")
@@ -236,19 +208,24 @@ def ai_test():
             api_key=api_key,
         )
         
-        reply = "test failed"
-        model_used = "none"
         if bot_engine:
             res = bot_engine.get_chat_response("Hello", "safety")
-            reply = res.get("reply")
-            model_used = res.get("model_used")
-
-        return jsonify({
-            "success": True,
-            "reply": reply,
-            "provider": "openrouter",
-            "model": model_used
-        })
+            if res.get("success"):
+                return jsonify({
+                    "success": True,
+                    "reply": res.get("reply"),
+                    "provider": "openrouter",
+                    "model": res.get("model_used")
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "provider": "openrouter",
+                    "error": res.get("error"),
+                    "attempted_models": res.get("attempted_models")
+                }), 503
+        
+        return jsonify({"success": False, "error": "Bot engine not ready"}), 500
 
     except Exception as e:
         return jsonify({

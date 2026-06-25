@@ -3,12 +3,13 @@ import os
 
 class RakshaBotEngine:
     def __init__(self, api_key):
-        self.default_model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1:free")
+        self.default_model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
         self.fallback_models = [
             self.default_model,
-            "deepseek/deepseek-r1:free",
-            "meta-llama/llama-3.1-8b-instruct:free",
-            "qwen/qwen-2.5-7b-instruct:free"
+            "deepseek/deepseek-r1-0528:free",
+            "z-ai/glm-4.5-air:free",
+            "qwen/qwen3-coder:free",
+            "moonshotai/kimi-k2:free"
         ]
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
@@ -59,14 +60,17 @@ class RakshaBotEngine:
             
         messages.append({"role": "user", "content": query})
 
-        # Fallback Logic
-        last_error = None
-        for model_name in self.fallback_models:
+        # Fallback Logic with Error Logging
+        attempted_models = []
+        
+        # Deduplicate models while preserving order
+        unique_models = []
+        for m in self.fallback_models:
+            if m not in unique_models:
+                unique_models.append(m)
+
+        for model_name in unique_models:
             try:
-                # Deduplicate list manually while preserving order
-                # (Simple way is to check if we already tried it or just let it loop)
-                # We'll just try each unique model in order.
-                
                 print(f"[Bot Engine] Attempting model: {model_name}")
                 response = self.client.chat.completions.create(
                     model=model_name,
@@ -77,19 +81,24 @@ class RakshaBotEngine:
                 
                 reply = response.choices[0].message.content
                 return {
+                    "success": True,
                     "reply": reply,
                     "model_used": model_name
                 }
             except Exception as e:
-                print(f"[Bot Engine] Fail with {model_name}: {e}")
-                last_error = e
-                continue
+                err_msg = str(e)
+                print(f"[Bot Engine] Fail with {model_name}: {err_msg}")
+                attempted_models.append({
+                    "model": model_name,
+                    "error": err_msg
+                })
         
         # If all fail
         return {
+            "success": False,
             "reply": "I'm having trouble connecting to all my AI brains. Please check back soon.",
-            "error": str(last_error),
-            "model_used": "none"
+            "error": "All OpenRouter models failed",
+            "attempted_models": attempted_models
         }
 
     def generate_study_plan(self, exam_data):
@@ -100,6 +109,5 @@ class RakshaBotEngine:
             "Daily targets, Weekly targets, Revision plan, Mock test plan, Resources, and a Final 7-day strategy. "
             "Format the response clearly using Markdown."
         )
-        # For simplicity, we just return the reply string if called directly, or adjust caller.
         result = self.get_chat_response(prompt, "education")
-        return result.get("reply")
+        return result.get("reply") if result.get("success") else "Error generating study plan."
