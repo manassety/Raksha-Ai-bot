@@ -11,8 +11,10 @@ from datetime import datetime
 import sys
 print("Python Version:", sys.version)
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-print("GEMINI_MODEL:", GEMINI_MODEL)
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3.1:free")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter")
+print(f"Provider: {AI_PROVIDER}")
+print(f"Model: {OPENROUTER_MODEL}")
 
 # --- BOT & GUARDIAN IMPORTS ---
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend/raksha_bot'))
@@ -40,14 +42,14 @@ pdf_gen = None
 
 if 'RakshaBotEngine' in globals():
     try:
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        if gemini_key:
-            bot_engine = RakshaBotEngine(api_key=gemini_key)
+        or_key = os.environ.get("OPENROUTER_API_KEY")
+        if or_key:
+            bot_engine = RakshaBotEngine(api_key=or_key)
             bot_fb = RakshaFirebaseService()
             pdf_gen = StudyPlanPDFGenerator()
-            print("[Bot] Components initialized with Gemini successfully")
+            print("[Bot] Components initialized with OpenRouter successfully")
         else:
-            print("[Bot] Warning: GEMINI_API_KEY not found, engine deferred")
+            print("[Bot] Warning: OPENROUTER_API_KEY not found, engine deferred")
     except Exception as e:
         print(f"[Bot] Initialization failed: {e}")
 
@@ -136,39 +138,49 @@ def ai_chat():
                 "error": "Message is required"
             }), 400
 
-        # Attempt Gemini response via Engine if loaded, otherwise fallback to direct Gemini
-        reply = "I'm having trouble thinking right now. Please check my Gemini engine."
+        # Attempt OpenRouter response via Engine if loaded, otherwise fallback to direct OpenRouter
+        reply = "I'm having trouble thinking right now. Please check my OpenRouter engine."
         
         if bot_engine:
             try:
                 reply = bot_engine.get_chat_response(user_message, section)
             except Exception as e:
-                print(f"Bot Engine Gemini Error: {e}")
-                # Fallback to direct Gemini if engine fails
-                import google.generativeai as genai
-                genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-                # Try GEMINI_MODEL first
+                print(f"Bot Engine OpenRouter Error: {e}")
+                # Fallback to direct OpenRouter if engine fails
+                from openai import OpenAI
+                client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ.get("OPENROUTER_API_KEY"))
                 try:
-                    model = genai.GenerativeModel(GEMINI_MODEL)
-                    response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
-                    reply = response.text
-                except:
-                    # Generic fallback if specific model fails
-                    model = genai.GenerativeModel('gemini-2.0-flash')
-                    response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
-                    reply = response.text
+                    response = client.chat.completions.create(
+                        model=OPENROUTER_MODEL,
+                        messages=[
+                            {"role": "system", "content": f"You are Raksha AI. Help the user in the {section} category."},
+                            {"role": "user", "content": user_message}
+                        ],
+                        temperature=0.7,
+                        max_tokens=1200
+                    )
+                    reply = response.choices[0].message.content
+                except Exception as ex:
+                    print(f"Direct OpenRouter Fallback Error: {ex}")
+                    reply = "I'm having trouble connecting to my AI brain via OpenRouter fallback."
         else:
-            # Direct Gemini Fallback
-            import google.generativeai as genai
-            genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+            # Direct OpenRouter Fallback
+            from openai import OpenAI
+            client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ.get("OPENROUTER_API_KEY"))
             try:
-                model = genai.GenerativeModel(GEMINI_MODEL)
-                response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
-                reply = response.text
-            except:
-                model = genai.GenerativeModel('gemini-2.0-flash')
-                response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
-                reply = response.text
+                response = client.chat.completions.create(
+                    model=OPENROUTER_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are Raksha AI Safety Bot. Answer practical safety tips."},
+                        {"role": "user", "content": user_message}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1200
+                )
+                reply = response.choices[0].message.content
+            except Exception as ex:
+                print(f"Direct OpenRouter Fallback Error: {ex}")
+                reply = "I'm having trouble connecting to my AI brain via direct fallback."
 
         # Save to Firebase if possible
         if bot_fb and user_id != "guest":
@@ -201,72 +213,55 @@ def cloud_sms():
 @app.route("/api/ai/test", methods=["GET"])
 def ai_test():
     try:
-        import google.generativeai as genai
+        from openai import OpenAI
         import os
 
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             return jsonify({
                 "success": False,
-                "error": "GEMINI_API_KEY missing"
+                "error": "OPENROUTER_API_KEY missing"
             }), 500
 
-        genai.configure(api_key=api_key)
-        # Try GEMINI_MODEL first
-        try:
-            model = genai.GenerativeModel(GEMINI_MODEL)
-            response = model.generate_content("Hello")
-            engine_name = GEMINI_MODEL
-        except:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            response = model.generate_content("Hello")
-            engine_name = "gemini-2.0-flash (fallback)"
-            
-        reply = response.text
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        
+        response = client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=[
+                {"role": "user", "content": "Hello"}
+            ],
+            temperature=0.7,
+            max_tokens=100
+        )
+        
+        reply = response.choices[0].message.content
 
         return jsonify({
             "success": True,
             "reply": reply,
-            "engine": engine_name
+            "provider": "openrouter",
+            "model": OPENROUTER_MODEL
         })
 
     except Exception as e:
         return jsonify({
             "success": False,
+            "provider": "openrouter",
             "error": str(e),
             "type": type(e).__name__
         }), 500
 
-@app.route("/api/gemini/models", methods=["GET"])
-def list_gemini_models():
-    try:
-        import requests
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return jsonify({"success": False, "error": "GEMINI_API_KEY missing"}), 500
-            
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        
-        available_models = []
-        if 'models' in data:
-            for m in data['models']:
-                # Filter for models that support generating content
-                if 'generateContent' in m.get('supportedGenerationMethods', []):
-                    available_models.append({
-                        "name": m.get('name'),
-                        "displayName": m.get('displayName'),
-                        "description": m.get('description')
-                    })
-        
-        return jsonify({
-            "success": True,
-            "models": available_models,
-            "raw_count": len(data.get('models', []))
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+@app.route("/api/ai/provider", methods=["GET"])
+def ai_provider():
+    return jsonify({
+        "provider": "openrouter",
+        "model": OPENROUTER_MODEL,
+        "status": "connected"
+    })
+
 
 @app.route("/", methods=["GET"])
 def index():
@@ -280,17 +275,11 @@ def index():
 def debug_env():
     return jsonify({
         "status": "ok",
-        "gemini_key_present": bool(os.getenv("GEMINI_API_KEY")),
+        "openrouter_key_present": bool(os.getenv("OPENROUTER_API_KEY")),
         "google_key_present": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
         "firebase_key_present": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
     })
 
-@app.route("/api/ai/model", methods=["GET"])
-def get_ai_model():
-    return jsonify({
-        "model": GEMINI_MODEL,
-        "backup_default": "gemini-2.0-flash"
-    })
 
 @app.route("/api/routes", methods=["GET"])
 def list_routes():

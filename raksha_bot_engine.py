@@ -1,33 +1,14 @@
-import google.generativeai as genai
+from openai import OpenAI
 import os
 
 class RakshaBotEngine:
     def __init__(self, api_key):
-        genai.configure(api_key=api_key)
-        self.default_model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-        self.models_to_try = [
-            self.default_model_name,
-            'gemini-2.0-flash',
-            'gemini-2.0-flash-lite',
-            'gemini-1.5-pro'
-        ]
-        self.model = self._setup_model()
-        
-    def _setup_model(self):
-        # Try models in order until one works
-        for model_name in self.models_to_try:
-            try:
-                # Basic check - list_models or just try to instantiate
-                model = genai.GenerativeModel(model_name)
-                # Attempt a very tiny generation to verify accessibility (optional, but safer)
-                # For now, just instantiate. If it fails during actual chat, we can catch it there.
-                print(f"[Bot Engine] selected: {model_name}")
-                return model
-            except Exception as e:
-                print(f"[Bot Engine] Model {model_name} failed setup: {e}")
-                continue
-        # Last resort fallback if all else fails (instance might still fail later)
-        return genai.GenerativeModel('gemini-2.0-flash')
+        self.model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3.1:free")
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        print(f"[Bot Engine] Initialized with OpenRouter model: {self.model}")
         
     def get_system_instruction(self, section):
         base = (
@@ -66,20 +47,31 @@ class RakshaBotEngine:
     def get_chat_response(self, query, section, context=None):
         try:
             system_msg = self.get_system_instruction(section)
-            full_prompt = f"System Instruction: {system_msg}\n\n"
+            
+            messages = [
+                {"role": "system", "content": system_msg}
+            ]
+            
             if context:
-                full_prompt += f"Context: {context}\n\n"
-            full_prompt += f"User: {query}"
+                messages.append({"role": "system", "content": f"Context: {context}"})
+                
+            messages.append({"role": "user", "content": query})
 
-            response = self.model.generate_content(full_prompt)
-            return response.text
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=1200
+            )
+            
+            return response.choices[0].message.content
         except Exception as e:
-            print(f"[Bot Engine] Gemini Error: {e}")
-            return "I'm having trouble connecting to my AI brain. Please try again in a moment."
+            print(f"[Bot Engine] OpenRouter Error: {e}")
+            return "I'm having trouble connecting to my AI brain via OpenRouter. Please try again in a moment."
 
     def generate_study_plan(self, exam_data):
         """
-        Generates a detailed study plan using Gemini.
+        Generates a detailed study plan using OpenRouter.
         """
         prompt = (
             f"Generate a full study plan for the exam: {exam_data.get('examName')}. "
