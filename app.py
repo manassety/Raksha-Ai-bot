@@ -20,6 +20,8 @@ try:
 except ImportError:
     print("[Warning] Bot modules not found")
 
+from openai import OpenAI
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'raksha_secret_key'
 CORS(app)
@@ -193,6 +195,33 @@ def analyze_frame():
 def cloud_sms():
     print(f"[Cloud SMS] Sending to {request.json.get('numbers')}")
     return jsonify({"success": True, "status": "Queued via Render Backend"})
+
+@app.route("/api/ai/test", methods=["GET"])
+def test_ai():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return jsonify({"success": False, "error": "OPENAI_API_KEY missing in environment"}), 500
+    
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "user", "content": "Hello"}
+            ],
+            timeout=10
+        )
+        reply = response.choices[0].message.content
+        return jsonify({
+            "success": True,
+            "reply": reply
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "type": type(e).__name__
+        }), 500
 
 @app.route("/", methods=["GET"])
 def index():
