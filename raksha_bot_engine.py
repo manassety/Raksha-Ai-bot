@@ -4,7 +4,29 @@ import os
 class RakshaBotEngine:
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.models_to_try = [
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+            'gemini-2.0-flash-lite',
+            'gemini-1.5-pro'
+        ]
+        self.model = self._setup_model()
+        
+    def _setup_model(self):
+        # Try models in order until one works
+        for model_name in self.models_to_try:
+            try:
+                # Basic check - list_models or just try to instantiate
+                model = genai.GenerativeModel(model_name)
+                # Attempt a very tiny generation to verify accessibility (optional, but safer)
+                # For now, just instantiate. If it fails during actual chat, we can catch it there.
+                print(f"[Bot Engine] selected: {model_name}")
+                return model
+            except Exception as e:
+                print(f"[Bot Engine] Model {model_name} failed setup: {e}")
+                continue
+        # Last resort fallback if all else fails (instance might still fail later)
+        return genai.GenerativeModel('gemini-2.0-flash')
         
     def get_system_instruction(self, section):
         base = (

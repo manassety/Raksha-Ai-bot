@@ -8,8 +8,8 @@ load_dotenv() # Load variables from .env if present
 import sys
 import time
 from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore, storage
+import sys
+print("Python Version:", sys.version)
 
 # --- BOT & GUARDIAN IMPORTS ---
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend/raksha_bot'))
@@ -19,6 +19,9 @@ try:
     from pdf_generator import StudyPlanPDFGenerator
 except ImportError:
     print("[Warning] Bot modules not found")
+
+import firebase_admin
+from firebase_admin import credentials, firestore, storage
 
 
 
@@ -141,16 +144,27 @@ def ai_chat():
                 # Fallback to direct Gemini if engine fails
                 import google.generativeai as genai
                 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
-                reply = response.text
+                # Try gemini-2.0-flash first
+                try:
+                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
+                    reply = response.text
+                except:
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
+                    reply = response.text
         else:
             # Direct Gemini Fallback
             import google.generativeai as genai
             genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
-            reply = response.text
+            try:
+                model = genai.GenerativeModel('gemini-2.0-flash')
+                response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
+                reply = response.text
+            except:
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
+                reply = response.text
 
         # Save to Firebase if possible
         if bot_fb and user_id != "guest":
@@ -194,14 +208,22 @@ def ai_test():
             }), 500
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content("Hello")
+        # Try 2.0 first
+        try:
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content("Hello")
+            engine_name = "gemini-2.0-flash"
+        except:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content("Hello")
+            engine_name = "gemini-1.5-flash"
+            
         reply = response.text
 
         return jsonify({
             "success": True,
             "reply": reply,
-            "engine": "gemini-1.5-flash"
+            "engine": engine_name
         })
 
     except Exception as e:
@@ -210,6 +232,37 @@ def ai_test():
             "error": str(e),
             "type": type(e).__name__
         }), 500
+
+@app.route("/api/gemini/models", methods=["GET"])
+def list_gemini_models():
+    try:
+        import requests
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return jsonify({"success": False, "error": "GEMINI_API_KEY missing"}), 500
+            
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        
+        available_models = []
+        if 'models' in data:
+            for m in data['models']:
+                # Filter for models that support generating content
+                if 'generateContent' in m.get('supportedGenerationMethods', []):
+                    available_models.append({
+                        "name": m.get('name'),
+                        "displayName": m.get('displayName'),
+                        "description": m.get('description')
+                    })
+        
+        return jsonify({
+            "success": True,
+            "models": available_models,
+            "raw_count": len(data.get('models', []))
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/", methods=["GET"])
 def index():
