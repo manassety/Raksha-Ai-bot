@@ -1,9 +1,10 @@
-from openai import OpenAI
+import google.generativeai as genai
 import os
 
 class RakshaBotEngine:
     def __init__(self, api_key):
-        self.client = OpenAI(api_key=api_key)
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
         
     def get_system_instruction(self, section):
         base = (
@@ -42,38 +43,27 @@ class RakshaBotEngine:
     def get_chat_response(self, query, section, context=None):
         try:
             system_msg = self.get_system_instruction(section)
-            
-            messages = [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": query}
-            ]
-            
-            # Add context if available (e.g. current exams)
+            full_prompt = f"System Instruction: {system_msg}\n\n"
             if context:
-                messages.insert(1, {"role": "system", "content": f"Context data: {context}"})
+                full_prompt += f"Context: {context}\n\n"
+            full_prompt += f"User: {query}"
 
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini", # Using mini for speed and cost
-                messages=messages,
-                temperature=0.7,
-                max_tokens=800
-            )
-            
-            return response.choices[0].message.content
+            response = self.model.generate_content(full_prompt)
+            return response.text
         except Exception as e:
-            print(f"[Bot Engine] OpenAI Error: {e}")
+            print(f"[Bot Engine] Gemini Error: {e}")
             return "I'm having trouble connecting to my AI brain. Please try again in a moment."
 
     def generate_study_plan(self, exam_data):
         """
-        Generates a detailed study plan using GPT.
+        Generates a detailed study plan using Gemini.
         """
         prompt = (
             f"Generate a full study plan for the exam: {exam_data.get('examName')}. "
             f"Exam Date: {exam_data.get('examDate')}. Syllabus: {exam_data.get('syllabus')}. "
             "The plan MUST include: Exam overview, Syllabus breakdown, Roadmap till exam date, "
             "Daily targets, Weekly targets, Revision plan, Mock test plan, Resources, and a Final 7-day strategy. "
-            "Format the response clearly."
+            "Format the response clearly using Markdown."
         )
         
         return self.get_chat_response(prompt, "education")

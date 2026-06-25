@@ -34,14 +34,14 @@ pdf_gen = None
 
 if 'RakshaBotEngine' in globals():
     try:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            bot_engine = RakshaBotEngine(api_key=api_key)
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            bot_engine = RakshaBotEngine(api_key=gemini_key)
             bot_fb = RakshaFirebaseService()
             pdf_gen = StudyPlanPDFGenerator()
-            print("[Bot] Components initialized successfully")
+            print("[Bot] Components initialized with Gemini successfully")
         else:
-            print("[Bot] Warning: OPENAI_API_KEY not found, engine deferred")
+            print("[Bot] Warning: GEMINI_API_KEY not found, engine deferred")
     except Exception as e:
         print(f"[Bot] Initialization failed: {e}")
 
@@ -130,44 +130,27 @@ def ai_chat():
                 "error": "Message is required"
             }), 400
 
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            return jsonify({
-                "success": False,
-                "error": "OPENAI_API_KEY is not configured on the cloud server."
-            }), 500
-
-        # Attempt AI response via Engine if loaded, otherwise fallback to direct OpenAI
-        reply = "I'm having trouble thinking right now. Please check my engine."
+        # Attempt Gemini response via Engine if loaded, otherwise fallback to direct Gemini
+        reply = "I'm having trouble thinking right now. Please check my Gemini engine."
         
         if bot_engine:
             try:
                 reply = bot_engine.get_chat_response(user_message, section)
             except Exception as e:
-                print(f"Bot Engine Error: {e}")
-                # Fallback to direct client if engine fails
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": f"You are Raksha AI. Help the user in the {section} category. Be practical and safe."},
-                        {"role": "user", "content": user_message}
-                    ]
-                )
-                reply = response.choices[0].message.content
+                print(f"Bot Engine Gemini Error: {e}")
+                # Fallback to direct Gemini if engine fails
+                import google.generativeai as genai
+                genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
+                reply = response.text
         else:
-            # Direct OpenAI Fallback
-            from openai import OpenAI
-            client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are Raksha AI Safety Bot. Answer practical and India-focused safety tips."},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            reply = response.choices[0].message.content
+            # Direct Gemini Fallback
+            import google.generativeai as genai
+            genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
+            reply = response.text
 
         # Save to Firebase if possible
         if bot_fb and user_id != "guest":
@@ -200,30 +183,25 @@ def cloud_sms():
 @app.route("/api/ai/test", methods=["GET"])
 def ai_test():
     try:
-        from openai import OpenAI
+        import google.generativeai as genai
         import os
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             return jsonify({
                 "success": False,
-                "error": "OPENAI_API_KEY missing"
+                "error": "GEMINI_API_KEY missing"
             }), 500
 
-        client = OpenAI(api_key=api_key)
-
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "user", "content": "Hello"}
-            ]
-        )
-
-        reply = response.choices[0].message.content
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content("Hello")
+        reply = response.text
 
         return jsonify({
             "success": True,
-            "reply": reply
+            "reply": reply,
+            "engine": "gemini-1.5-flash"
         })
 
     except Exception as e:
@@ -245,7 +223,7 @@ def index():
 def debug_env():
     return jsonify({
         "status": "ok",
-        "openai_key_present": bool(os.getenv("OPENAI_API_KEY")),
+        "gemini_key_present": bool(os.getenv("GEMINI_API_KEY")),
         "google_key_present": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
         "firebase_key_present": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
     })
