@@ -3,12 +3,18 @@ import os
 
 class RakshaBotEngine:
     def __init__(self, api_key):
-        self.model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3.1:free")
+        self.default_model = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1:free")
+        self.fallback_models = [
+            self.default_model,
+            "deepseek/deepseek-r1:free",
+            "meta-llama/llama-3.1-8b-instruct:free",
+            "qwen/qwen-2.5-7b-instruct:free"
+        ]
         self.client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
         )
-        print(f"[Bot Engine] Initialized with OpenRouter model: {self.model}")
+        print(f"[Bot Engine] Initialized with OpenRouter models. Primary: {self.default_model}")
         
     def get_system_instruction(self, section):
         base = (
@@ -45,34 +51,48 @@ class RakshaBotEngine:
         return f"{base} {section_rules.get(section, '')}"
 
     def get_chat_response(self, query, section, context=None):
-        try:
-            system_msg = self.get_system_instruction(section)
+        system_msg = self.get_system_instruction(section)
+        messages = [{"role": "system", "content": system_msg}]
+        
+        if context:
+            messages.append({"role": "system", "content": f"Context: {context}"})
             
-            messages = [
-                {"role": "system", "content": system_msg}
-            ]
-            
-            if context:
-                messages.append({"role": "system", "content": f"Context: {context}"})
-                
-            messages.append({"role": "user", "content": query})
+        messages.append({"role": "user", "content": query})
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1200
-            )
-            
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"[Bot Engine] OpenRouter Error: {e}")
-            return "I'm having trouble connecting to my AI brain via OpenRouter. Please try again in a moment."
+        # Fallback Logic
+        last_error = None
+        for model_name in self.fallback_models:
+            try:
+                # Deduplicate list manually while preserving order
+                # (Simple way is to check if we already tried it or just let it loop)
+                # We'll just try each unique model in order.
+                
+                print(f"[Bot Engine] Attempting model: {model_name}")
+                response = self.client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1200
+                )
+                
+                reply = response.choices[0].message.content
+                return {
+                    "reply": reply,
+                    "model_used": model_name
+                }
+            except Exception as e:
+                print(f"[Bot Engine] Fail with {model_name}: {e}")
+                last_error = e
+                continue
+        
+        # If all fail
+        return {
+            "reply": "I'm having trouble connecting to all my AI brains. Please check back soon.",
+            "error": str(last_error),
+            "model_used": "none"
+        }
 
     def generate_study_plan(self, exam_data):
-        """
-        Generates a detailed study plan using OpenRouter.
-        """
         prompt = (
             f"Generate a full study plan for the exam: {exam_data.get('examName')}. "
             f"Exam Date: {exam_data.get('examDate')}. Syllabus: {exam_data.get('syllabus')}. "
@@ -80,5 +100,6 @@ class RakshaBotEngine:
             "Daily targets, Weekly targets, Revision plan, Mock test plan, Resources, and a Final 7-day strategy. "
             "Format the response clearly using Markdown."
         )
-        
-        return self.get_chat_response(prompt, "education")
+        # For simplicity, we just return the reply string if called directly, or adjust caller.
+        result = self.get_chat_response(prompt, "education")
+        return result.get("reply")

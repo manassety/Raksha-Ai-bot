@@ -140,10 +140,13 @@ def ai_chat():
 
         # Attempt OpenRouter response via Engine if loaded, otherwise fallback to direct OpenRouter
         reply = "I'm having trouble thinking right now. Please check my OpenRouter engine."
+        model_used = "none"
         
         if bot_engine:
             try:
-                reply = bot_engine.get_chat_response(user_message, section)
+                res = bot_engine.get_chat_response(user_message, section)
+                reply = res.get("reply", reply)
+                model_used = res.get("model_used", "engine")
             except Exception as e:
                 print(f"Bot Engine OpenRouter Error: {e}")
                 # Fallback to direct OpenRouter if engine fails
@@ -160,6 +163,7 @@ def ai_chat():
                         max_tokens=1200
                     )
                     reply = response.choices[0].message.content
+                    model_used = OPENROUTER_MODEL
                 except Exception as ex:
                     print(f"Direct OpenRouter Fallback Error: {ex}")
                     reply = "I'm having trouble connecting to my AI brain via OpenRouter fallback."
@@ -178,6 +182,7 @@ def ai_chat():
                     max_tokens=1200
                 )
                 reply = response.choices[0].message.content
+                model_used = OPENROUTER_MODEL
             except Exception as ex:
                 print(f"Direct OpenRouter Fallback Error: {ex}")
                 reply = "I'm having trouble connecting to my AI brain via direct fallback."
@@ -185,13 +190,16 @@ def ai_chat():
         # Save to Firebase if possible
         if bot_fb and user_id != "guest":
             try:
-                bot_fb.save_chat_message(user_id, {"sender": "bot", "message": reply, "section": section})
+                # Handle dictionary if reply is from direct engine
+                actual_reply_text = reply if isinstance(reply, str) else str(reply)
+                bot_fb.save_chat_message(user_id, {"sender": "bot", "message": actual_reply_text, "section": section})
             except: pass
 
         return jsonify({
             "success": True,
             "reply": reply,
-            "message": reply
+            "provider": "openrouter",
+            "model_used": model_used
         })
 
     except Exception as e:
@@ -228,22 +236,18 @@ def ai_test():
             api_key=api_key,
         )
         
-        response = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
-            messages=[
-                {"role": "user", "content": "Hello"}
-            ],
-            temperature=0.7,
-            max_tokens=100
-        )
-        
-        reply = response.choices[0].message.content
+        reply = "test failed"
+        model_used = "none"
+        if bot_engine:
+            res = bot_engine.get_chat_response("Hello", "safety")
+            reply = res.get("reply")
+            model_used = res.get("model_used")
 
         return jsonify({
             "success": True,
             "reply": reply,
             "provider": "openrouter",
-            "model": OPENROUTER_MODEL
+            "model": model_used
         })
 
     except Exception as e:
