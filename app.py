@@ -20,7 +20,7 @@ try:
 except ImportError:
     print("[Warning] Bot modules not found")
 
-from openai import OpenAI
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'raksha_secret_key'
