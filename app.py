@@ -104,11 +104,12 @@ def handle_exception(e):
 def home():
     return jsonify({"status": "ok", "message": "Raksha AI Bot backend running"})
 
-@app.route("/api/ai/test")
-def test_ai_route():
+@app.route("/api/version")
+def version():
     return jsonify({
-        "status": "ok",
-        "route": "/api/ai/chat is currently active"
+        "version": "ai-test-openai-v2",
+        "file": __file__,
+        "status": "ready"
     })
 
 # --- HARDENED AI CHAT ROUTE ---
