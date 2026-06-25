@@ -11,17 +11,16 @@ from datetime import datetime
 import sys
 print("Python Version:", sys.version)
 
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
-AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter")
+HF_MODEL = os.getenv("HF_MODEL", "Qwen/Qwen3-32B")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "huggingface")
 print(f"Provider: {AI_PROVIDER}")
-print(f"Model: {OPENROUTER_MODEL}")
+print(f"Model: {HF_MODEL}")
 
-# --- BOT & GUARDIAN IMPORTS ---
-sys.path.append(os.path.join(os.path.dirname(__file__), 'backend/raksha_bot'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
 try:
-    from raksha_bot_engine import RakshaBotEngine
-    from firebase_service import RakshaFirebaseService
-    from pdf_generator import StudyPlanPDFGenerator
+    from services.huggingface_service import HuggingFaceService
+    from raksha_bot.firebase_service import RakshaFirebaseService
+    from raksha_bot.pdf_generator import StudyPlanPDFGenerator
 except ImportError:
     print("[Warning] Bot modules not found")
 
@@ -40,16 +39,15 @@ bot_engine = None
 bot_fb = None
 pdf_gen = None
 
-if 'RakshaBotEngine' in globals():
+if 'HuggingFaceService' in globals():
     try:
-        or_key = os.environ.get("OPENROUTER_API_KEY")
-        if or_key:
-            bot_engine = RakshaBotEngine(api_key=or_key)
+        if os.environ.get("HF_TOKEN"):
+            bot_engine = HuggingFaceService()
             bot_fb = RakshaFirebaseService()
             pdf_gen = StudyPlanPDFGenerator()
-            print("[Bot] Components initialized with OpenRouter successfully")
+            print("[Bot] Components initialized with HuggingFace successfully")
         else:
-            print("[Bot] Warning: OPENROUTER_API_KEY not found, engine deferred")
+            print("[Bot] Warning: HF_TOKEN not found, engine deferred")
     except Exception as e:
         print(f"[Bot] Initialization failed: {e}")
 
@@ -138,16 +136,11 @@ def ai_chat():
                 "error": "Message is required"
             }), 400
 
-        # Attempt OpenRouter response via Engine if loaded, otherwise fallback to direct OpenRouter
-        reply = "I'm having trouble thinking right now. Please check my OpenRouter engine."
-        model_used = "none"
-        attempted_models = []
-        
+        # Use bot_engine (HuggingFaceService)
         if bot_engine:
             res = bot_engine.get_chat_response(user_message, section)
             if res.get("success"):
                 reply = res.get("reply")
-                model_used = res.get("model_used")
                 
                 # Save to Firebase if successful
                 if bot_fb and user_id != "guest":
@@ -155,18 +148,20 @@ def ai_chat():
                         bot_fb.save_chat_message(user_id, {"sender": "bot", "message": reply, "section": section})
                     except: pass
 
+                print(f"AI Chat - Provider: huggingface, Model: {HF_MODEL}, Time: {res.get('inference_time')}s")
                 return jsonify({
                     "success": True,
-                    "reply": reply,
-                    "provider": "openrouter",
-                    "model_used": model_used
+                    "provider": "huggingface",
+                    "model": HF_MODEL,
+                    "reply": reply
                 })
             else:
+                print(f"AI Chat Error - Provider: huggingface, Model: {HF_MODEL}, Error: {res.get('error')}")
                 return jsonify({
                     "success": False,
-                    "provider": "openrouter",
-                    "error": res.get("error", "AI Engine Failure"),
-                    "attempted_models": res.get("attempted_models", [])
+                    "provider": "huggingface",
+                    "error": res.get("error", "AI Inference Failure"),
+                    "details": res.get("details", "")
                 }), 503
         else:
             return jsonify({
@@ -177,9 +172,9 @@ def ai_chat():
     except Exception as e:
         app.logger.exception("AI Chat Logic Failure")
         return jsonify({
-            "success": True, # Still return success True but with error message to avoid frontend crash if it expects JSON
-            "reply": f"Error: {str(e)}"
-        })
+            "success": False,
+            "error": str(e)
+        }), 500
 
 @app.route('/api/evidence/analyze', methods=['POST'])
 def analyze_frame():
@@ -191,38 +186,22 @@ def cloud_sms():
     return jsonify({"success": True, "status": "Queued via Render Backend"})
 
 @app.route("/api/ai/test", methods=["GET"])
-def ai_test():
+def ai_test_route():
     try:
-        from openai import OpenAI
-        import os
-
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            return jsonify({
-                "success": False,
-                "error": "OPENROUTER_API_KEY missing"
-            }), 500
-
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
-        
         if bot_engine:
-            res = bot_engine.get_chat_response("Hello", "safety")
+            res = bot_engine.get_chat_response("Hello, are you active?", "safety")
             if res.get("success"):
                 return jsonify({
                     "success": True,
-                    "reply": res.get("reply"),
-                    "provider": "openrouter",
-                    "model": res.get("model_used")
+                    "provider": "huggingface",
+                    "model": HF_MODEL,
+                    "reply": res.get("reply")
                 })
             else:
                 return jsonify({
                     "success": False,
-                    "provider": "openrouter",
-                    "error": res.get("error"),
-                    "attempted_models": res.get("attempted_models")
+                    "provider": "huggingface",
+                    "error": res.get("error")
                 }), 503
         
         return jsonify({"success": False, "error": "Bot engine not ready"}), 500
@@ -230,17 +209,15 @@ def ai_test():
     except Exception as e:
         return jsonify({
             "success": False,
-            "provider": "openrouter",
-            "error": str(e),
-            "type": type(e).__name__
+            "error": str(e)
         }), 500
 
 @app.route("/api/ai/provider", methods=["GET"])
-def ai_provider():
+def ai_provider_route():
     return jsonify({
-        "provider": "openrouter",
-        "model": OPENROUTER_MODEL,
-        "status": "connected"
+        "provider": "huggingface",
+        "model": HF_MODEL,
+        "status": "connected" if bot_engine else "disconnected"
     })
 
 
@@ -256,7 +233,7 @@ def index():
 def debug_env():
     return jsonify({
         "status": "ok",
-        "openrouter_key_present": bool(os.getenv("OPENROUTER_API_KEY")),
+        "hf_token_present": bool(os.getenv("HF_TOKEN")),
         "google_key_present": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
         "firebase_key_present": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
     })
