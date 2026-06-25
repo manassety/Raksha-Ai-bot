@@ -11,6 +11,9 @@ from datetime import datetime
 import sys
 print("Python Version:", sys.version)
 
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+print("GEMINI_MODEL:", GEMINI_MODEL)
+
 # --- BOT & GUARDIAN IMPORTS ---
 sys.path.append(os.path.join(os.path.dirname(__file__), 'backend/raksha_bot'))
 try:
@@ -144,13 +147,14 @@ def ai_chat():
                 # Fallback to direct Gemini if engine fails
                 import google.generativeai as genai
                 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-                # Try gemini-2.0-flash first
+                # Try GEMINI_MODEL first
                 try:
-                    model = genai.GenerativeModel('gemini-2.0-flash')
+                    model = genai.GenerativeModel(GEMINI_MODEL)
                     response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
                     reply = response.text
                 except:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Generic fallback if specific model fails
+                    model = genai.GenerativeModel('gemini-2.0-flash')
                     response = model.generate_content(f"System: You are Raksha AI. Help the user in the {section} category.\nUser: {user_message}")
                     reply = response.text
         else:
@@ -158,11 +162,11 @@ def ai_chat():
             import google.generativeai as genai
             genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
             try:
-                model = genai.GenerativeModel('gemini-2.0-flash')
+                model = genai.GenerativeModel(GEMINI_MODEL)
                 response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
                 reply = response.text
             except:
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.0-flash')
                 response = model.generate_content(f"System: You are Raksha AI Safety Bot. Answer practical safety tips.\nUser: {user_message}")
                 reply = response.text
 
@@ -208,15 +212,15 @@ def ai_test():
             }), 500
 
         genai.configure(api_key=api_key)
-        # Try 2.0 first
+        # Try GEMINI_MODEL first
         try:
+            model = genai.GenerativeModel(GEMINI_MODEL)
+            response = model.generate_content("Hello")
+            engine_name = GEMINI_MODEL
+        except:
             model = genai.GenerativeModel('gemini-2.0-flash')
             response = model.generate_content("Hello")
-            engine_name = "gemini-2.0-flash"
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content("Hello")
-            engine_name = "gemini-1.5-flash"
+            engine_name = "gemini-2.0-flash (fallback)"
             
         reply = response.text
 
@@ -279,6 +283,13 @@ def debug_env():
         "gemini_key_present": bool(os.getenv("GEMINI_API_KEY")),
         "google_key_present": bool(os.getenv("GOOGLE_MAPS_API_KEY")),
         "firebase_key_present": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT"))
+    })
+
+@app.route("/api/ai/model", methods=["GET"])
+def get_ai_model():
+    return jsonify({
+        "model": GEMINI_MODEL,
+        "backup_default": "gemini-2.0-flash"
     })
 
 @app.route("/api/routes", methods=["GET"])

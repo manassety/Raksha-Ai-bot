@@ -4,9 +4,10 @@ import os
 class RakshaBotEngine:
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
+        self.default_model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         self.models_to_try = [
+            self.default_model_name,
             'gemini-2.0-flash',
-            'gemini-1.5-flash',
             'gemini-2.0-flash-lite',
             'gemini-1.5-pro'
         ]
